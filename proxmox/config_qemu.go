@@ -3,6 +3,7 @@ package proxmox
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"regexp"
@@ -11,28 +12,27 @@ import (
 	"time"
 )
 
+type qemuNetworks []interface{}
+
 type ConfigQemu struct {
-	Name         string  `json:"name"`
-	Description  string  `json:"desc"`
-	Memory       int     `json:"memory"`
-	DiskSize     float64 `json:"diskGB"`
-	Storage      string  `json:"storage"`
-	QemuOs       string  `json:"os"`
-	QemuCores    int     `json:"cores"`
-	QemuSockets  int     `json:"sockets"`
-	QemuIso      string  `json:"iso"`
-	QemuNicModel string  `json:"nic"`
-	QemuBrige    string  `json:"bridge"`
-	QemuVlanTag  int     `json:"vlan"`
-	FullClone    *int    `json:"fullclone"`
+	Name         string       `json:"name"`
+	Description  string       `json:"desc"`
+	Memory       int          `json:"memory"`
+	DiskSize     float64      `json:"diskGB"`
+	Storage      string       `json:"storage"`
+	QemuOs       string       `json:"os"`
+	QemuCores    int          `json:"cores"`
+	QemuSockets  int          `json:"sockets"`
+	QemuIso      string       `json:"iso"`
+	QemuNicModel string       `json:"nic"`
+	QemuBrige    string       `json:"bridge"`
+	QemuVlanTag  int          `json:"vlan"`
+	QemuNetworks qemuNetworks `json:"network"`
+	FullClone    *int         `json:"fullclone"`
 }
 
 func (config ConfigQemu) CreateVm(vmr *VmRef, client *Client) (err error) {
 	vmr.SetVmType("qemu")
-	network := config.QemuNicModel + ",bridge=" + config.QemuBrige
-	if config.QemuVlanTag > 0 {
-		network = network + ",tag=" + strconv.Itoa(config.QemuVlanTag)
-	}
 
 	params := map[string]string{
 		"vmid":        strconv.Itoa(vmr.vmId),
@@ -44,9 +44,11 @@ func (config ConfigQemu) CreateVm(vmr *VmRef, client *Client) (err error) {
 		"cores":       strconv.Itoa(config.QemuCores),
 		"cpu":         "host",
 		"memory":      strconv.Itoa(config.Memory),
-		"net0":        network,
 		"description": config.Description,
 	}
+
+	// Create network config.
+	config.CreateQemuNetworksParams(params)
 
 	_, err = client.CreateQemuVm(vmr.node, params)
 	return
@@ -87,17 +89,14 @@ func (config ConfigQemu) CloneVm(sourceVmr *VmRef, vmr *VmRef, client *Client) (
 }
 
 func (config ConfigQemu) UpdateConfig(vmr *VmRef, client *Client) (err error) {
-	network := config.QemuNicModel + ",bridge=" + config.QemuBrige
-	if config.QemuVlanTag > 0 {
-		network = network + ",tag=" + strconv.Itoa(config.QemuVlanTag)
-	}
 	configParams := map[string]string{
 		"sockets":     strconv.Itoa(config.QemuSockets),
 		"cores":       strconv.Itoa(config.QemuCores),
 		"memory":      strconv.Itoa(config.Memory),
-		"net0":        network,
 		"description": config.Description,
 	}
+	// Create network config.
+	config.CreateQemuNetworksParams(configParams)
 	_, err = client.SetVmConfig(vmr, configParams)
 	return err
 }
@@ -327,5 +326,53 @@ func SendKeysString(vmr *VmRef, client *Client, keys string) (err error) {
 		}
 		time.Sleep(100)
 	}
+	return nil
+}
+
+func (c ConfigQemu) CreateQemuNetworksParams(params map[string]string) error {
+
+	// For backward compatibility.
+	if len(c.QemuNetworks) == 0 && len(c.QemuNicModel) > 0 {
+		oldStyle := map[string]interface{}{
+			"id":     0,
+			"model":  c.QemuNicModel,
+			"bridge": c.QemuBrige,
+		}
+		if c.QemuVlanTag > 0 {
+			oldStyle["tag"] = strconv.Itoa(c.QemuVlanTag)
+		}
+		c.QemuNetworks = append(c.QemuNetworks, oldStyle)
+	}
+
+	// For new style with multi net device.
+	for _, nicConf := range c.QemuNetworks {
+		nicConfMap := nicConf.(map[string]interface{})
+
+		// Set Nic name.
+		nicID := nicConfMap["id"].(int)
+		qemuNicName := "net" + strconv.Itoa(nicID)
+		delete(nicConfMap, "id")
+
+		// Set Nic model.
+		nic := nicConfMap["model"].(string)
+		delete(nicConfMap, "model")
+
+		// Nic config.
+		for key, value := range nicConfMap {
+			var confValue interface{}
+			if sValue, ok := value.(string); ok && len(sValue) > 0 {
+				confValue = sValue
+			} else if iValue, ok := value.(int); ok && iValue > 0 {
+				confValue = iValue
+			}
+			if confValue != nil {
+				nic = fmt.Sprintf("%v,%v=%v", nic, key, confValue)
+			}
+		}
+
+		// Add nic to Qemu prams.
+		params[qemuNicName] = nic
+	}
+
 	return nil
 }
