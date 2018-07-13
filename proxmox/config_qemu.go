@@ -114,7 +114,6 @@ func NewConfigQemuFromJson(io io.Reader) (config *ConfigQemu, err error) {
 
 var rxStorage = regexp.MustCompile("(.*?):.*?,size=(\\d+)G")
 var rxIso = regexp.MustCompile("(.*?),media")
-var rxNetwork = regexp.MustCompile("(.*?)=.*?,bridge=([^,]+)(?:,tag=)?(.*)")
 
 func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err error) {
 	var vmConfig map[string]interface{}
@@ -178,15 +177,33 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		config.QemuIso = isoMatch[1]
 	}
 
-	if vmConfig["net0"] == nil {
-		return nil, errors.New("net0 (required) not found in current config")
+	nicNameRe := regexp.MustCompile(`net\d+`)
+	nicNames := []string{}
+
+	for k, _ := range vmConfig {
+		if nicName := nicNameRe.FindStringSubmatch(k); len(nicName) > 0 {
+			nicNames = append(nicNames, nicName[0])
+		}
 	}
 
-	netMatch := rxNetwork.FindStringSubmatch(vmConfig["net0"].(string))
-	config.QemuNicModel = netMatch[1]
-	config.QemuBrige = netMatch[2]
-	if netMatch[3] != "" {
-		config.QemuVlanTag, _ = strconv.Atoi(netMatch[3])
+	for _, nicName := range nicNames {
+		nicConfMap := map[string]interface{}{}
+		nicConfStr := vmConfig[nicName]
+		nicConfList := strings.Split(nicConfStr.(string), ",")
+
+		nicIDRe := regexp.MustCompile(`\d+`)
+		nicID := nicIDRe.FindStringSubmatch(nicName)
+
+		nicConfMap["id"] = nicID[0]
+		nicConfMap["model"] = nicConfList[0]
+
+		for _, confs := range nicConfList[1:] {
+			conf := strings.Split(confs, "=")
+			nicConfMap[conf[0]] = conf[1]
+		}
+
+		config.QemuNetworks = append(config.QemuNetworks, nicConfMap)
+
 	}
 
 	return
