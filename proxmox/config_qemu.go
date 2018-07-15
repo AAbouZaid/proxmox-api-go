@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-type qemuNetworks []interface{}
+type qemuNetworks []map[int]interface{}
+type qemuNic map[int]interface{}
 
 type ConfigQemu struct {
 	Name         string       `json:"name"`
@@ -187,22 +188,28 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 	}
 
 	for _, nicName := range nicNames {
-		nicConfMap := map[string]interface{}{}
+		nicIDRe := regexp.MustCompile(`\d+`)
 		nicConfStr := vmConfig[nicName]
 		nicConfList := strings.Split(nicConfStr.(string), ",")
 
-		nicIDRe := regexp.MustCompile(`\d+`)
-		nicID := nicIDRe.FindStringSubmatch(nicName)
+		//
+		id := nicIDRe.FindStringSubmatch(nicName)
+		nicID, _ := strconv.Atoi(id[0])
 
-		nicConfMap["id"] = nicID[0]
-		nicConfMap["model"] = nicConfList[0]
+		nicConfMap := map[string]interface{}{
+			"model": nicConfList[0],
+		}
 
 		for _, confs := range nicConfList[1:] {
 			conf := strings.Split(confs, "=")
 			nicConfMap[conf[0]] = conf[1]
 		}
 
-		config.QemuNetworks = append(config.QemuNetworks, nicConfMap)
+		nicConf := qemuNic{
+			nicID: nicConfMap,
+		}
+
+		config.QemuNetworks = append(config.QemuNetworks, nicConf)
 
 	}
 
@@ -350,45 +357,52 @@ func (c ConfigQemu) CreateQemuNetworksParams(params map[string]string) error {
 
 	// For backward compatibility.
 	if len(c.QemuNetworks) == 0 && len(c.QemuNicModel) > 0 {
-		oldStyle := map[string]interface{}{
-			"id":     0,
+		oldStyleMap := map[string]interface{}{
 			"model":  c.QemuNicModel,
 			"bridge": c.QemuBrige,
 		}
+
 		if c.QemuVlanTag > 0 {
-			oldStyle["tag"] = strconv.Itoa(c.QemuVlanTag)
+			oldStyleMap["tag"] = strconv.Itoa(c.QemuVlanTag)
 		}
-		c.QemuNetworks = append(c.QemuNetworks, oldStyle)
+
+		oldStyleConf := qemuNic{
+			0: oldStyleMap,
+		}
+		c.QemuNetworks = append(c.QemuNetworks, oldStyleConf)
 	}
 
 	// For new style with multi net device.
-	for _, nicConf := range c.QemuNetworks {
-		nicConfMap := nicConf.(map[string]interface{})
+	for _, nic := range c.QemuNetworks {
+		for nicID, nicConf := range nic {
+			nicConfMap := nicConf.(map[string]interface{})
+			// Set Nic name.
+			qemuNicName := "net" + strconv.Itoa(nicID)
 
-		// Set Nic name.
-		nicID := nicConfMap["id"].(int)
-		qemuNicName := "net" + strconv.Itoa(nicID)
-		delete(nicConfMap, "id")
+			// Set Nic model.
+			nicConfStr := nicConfMap["model"].(string)
+			delete(nicConfMap, "model")
 
-		// Set Nic model.
-		nic := nicConfMap["model"].(string)
-		delete(nicConfMap, "model")
-
-		// Nic config.
-		for key, value := range nicConfMap {
-			var confValue interface{}
-			if sValue, ok := value.(string); ok && len(sValue) > 0 {
-				confValue = sValue
-			} else if iValue, ok := value.(int); ok && iValue > 0 {
-				confValue = iValue
+			if nicConfMap["bridge"].(string) == "nat" {
+				delete(nicConfMap, "bridge")
 			}
-			if confValue != nil {
-				nic = fmt.Sprintf("%v,%v=%v", nic, key, confValue)
+
+			// Nic config.
+			for key, value := range nicConfMap {
+				if sValue, ok := value.(string); ok && len(sValue) == 0 {
+					delete(nicConfMap, key)
+				} else if iValue, ok := value.(int); ok && iValue <= 0 {
+					delete(nicConfMap, key)
+				}
 			}
+
+			for key, value := range nicConfMap {
+				nicConfStr = fmt.Sprintf("%v,%v=%v", nicConfStr, key, value)
+			}
+
+			// Add nic to Qemu prams.
+			params[qemuNicName] = nicConfStr
 		}
-
-		// Add nic to Qemu prams.
-		params[qemuNicName] = nic
 	}
 
 	return nil
