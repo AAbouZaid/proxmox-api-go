@@ -199,7 +199,7 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		nicID, _ := strconv.Atoi(id[0])
 
 		nicConfMap := map[string]interface{}{
-			"model": nicConfList[0],
+			"type": nicConfList[0],
 		}
 
 		for _, confs := range nicConfList[1:] {
@@ -370,7 +370,7 @@ func (c ConfigQemu) CreateQemuNetworksParams(params map[string]string) error {
 	// For backward compatibility.
 	if len(c.QemuNetworks) == 0 && len(c.QemuNicModel) > 0 {
 		oldStyleMap := map[string]interface{}{
-			"model":  c.QemuNicModel,
+			"type":  c.QemuNicModel,
 			"bridge": c.QemuBrige,
 		}
 
@@ -392,8 +392,8 @@ func (c ConfigQemu) CreateQemuNetworksParams(params map[string]string) error {
 			// Set Nic name.
 			qemuNicName := "net" + strconv.Itoa(nicID)
 
-			// Set Nic model.
-			nicConfStr := nicConfMap["model"].(string)
+			// Set Nic type.
+			nicConfStr := nicConfMap["type"].(string)
 			nicConfFormated = append(nicConfFormated, nicConfStr)
 
 			if nicConfMap["bridge"].(string) != "nat" {
@@ -401,7 +401,7 @@ func (c ConfigQemu) CreateQemuNetworksParams(params map[string]string) error {
 				nicConfFormated = append(nicConfFormated, bridge)
 			}
 
-			ignoredKeys := []string{"id", "model", "bridge"}
+			ignoredKeys := []string{"id", "type", "bridge"}
 
 			// Nic config.
 			for key, value := range nicConfMap {
