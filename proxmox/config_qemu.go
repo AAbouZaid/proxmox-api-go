@@ -12,21 +12,21 @@ import (
 	"time"
 )
 
-type qemuSets []map[int]interface{}
-type qemuNic map[int]interface{}
+type qemuDeviceSets map[int]map[string]interface{}
+type qemuDevice map[string]interface{}
 
 type ConfigQemu struct {
-	Name         string   `json:"name"`
-	Description  string   `json:"desc"`
-	Memory       int      `json:"memory"`
-	Storage      string   `json:"storage"`
-	QemuOs       string   `json:"os"`
-	QemuCores    int      `json:"cores"`
-	QemuSockets  int      `json:"sockets"`
-	QemuIso      string   `json:"iso"`
-	QemuNetworks qemuSets `json:"network"`
-	QemuDisks    qemuSets `json:"disks"`
-	FullClone    *int     `json:"fullclone"`
+	Name         string         `json:"name"`
+	Description  string         `json:"desc"`
+	Memory       int            `json:"memory"`
+	Storage      string         `json:"storage"`
+	QemuOs       string         `json:"os"`
+	QemuCores    int            `json:"cores"`
+	QemuSockets  int            `json:"sockets"`
+	QemuIso      string         `json:"iso"`
+	QemuNetworks qemuDeviceSets `json:"network"`
+	QemuDisks    qemuDeviceSets `json:"disk"`
+	FullClone    *int           `json:"fullclone"`
 	// Deprecated.
 	QemuNicModel string  `json:"nic"`
 	QemuBrige    string  `json:"bridge"`
@@ -157,14 +157,15 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		description = vmConfig["description"].(string)
 	}
 	config = &ConfigQemu{
-		Name:        vmConfig["name"].(string),
-		Description: strings.TrimSpace(description),
-		QemuOs:      vmConfig["ostype"].(string),
-		Memory:      int(vmConfig["memory"].(float64)),
-		QemuCores:   int(vmConfig["cores"].(float64)),
-		QemuSockets: int(vmConfig["sockets"].(float64)),
-		QemuVlanTag: -1,
-		FullClone:   &fullclone,
+		Name:         vmConfig["name"].(string),
+		Description:  strings.TrimSpace(description),
+		QemuOs:       vmConfig["ostype"].(string),
+		Memory:       int(vmConfig["memory"].(float64)),
+		QemuCores:    int(vmConfig["cores"].(float64)),
+		QemuSockets:  int(vmConfig["sockets"].(float64)),
+		QemuVlanTag:  -1,
+		FullClone:    &fullclone,
+		QemuNetworks: qemuDeviceSets{},
 	}
 
 	if vmConfig["virtio0"] == nil {
@@ -180,6 +181,7 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		config.QemuIso = isoMatch[1]
 	}
 
+	// Networks.
 	nicNameRe := regexp.MustCompile(`net\d+`)
 	nicNames := []string{}
 
@@ -198,21 +200,29 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		id := nicIDRe.FindStringSubmatch(nicName)
 		nicID, _ := strconv.Atoi(id[0])
 
+		// Remove MAC address, and add type only.
 		nicConfMap := map[string]interface{}{
-			"type": nicConfList[0],
+			"type": strings.Split(nicConfList[0], "=")[0],
 		}
 
+		// Add rest of device config.
 		for _, confs := range nicConfList[1:] {
 			conf := strings.Split(confs, "=")
-			nicConfMap[conf[0]] = conf[1]
+			key := conf[0]
+			value := conf[1]
+			// Make sure to add value in right type because
+			// all values are retruned as strings from Proxmox config.
+			if iValue, err := strconv.ParseInt(value, 10, 64); err == nil {
+				nicConfMap[key] = int(iValue)
+			} else {
+				nicConfMap[key] = value
+			}
 		}
 
-		nicConf := qemuNic{
-			nicID: nicConfMap,
+		// And device config to networks.
+		if len(nicConfMap) > 0 {
+			config.QemuNetworks[nicID] = nicConfMap
 		}
-
-		config.QemuNetworks = append(config.QemuNetworks, nicConf)
-
 	}
 
 	return
@@ -369,59 +379,56 @@ func (c ConfigQemu) CreateQemuNetworksParams(params map[string]string) error {
 
 	// For backward compatibility.
 	if len(c.QemuNetworks) == 0 && len(c.QemuNicModel) > 0 {
-		oldStyleMap := map[string]interface{}{
-			"type":  c.QemuNicModel,
+		deprecatedStyleMap := qemuDevice{
+			"type":   c.QemuNicModel,
 			"bridge": c.QemuBrige,
 		}
 
 		if c.QemuVlanTag > 0 {
-			oldStyleMap["tag"] = strconv.Itoa(c.QemuVlanTag)
+			deprecatedStyleMap["tag"] = strconv.Itoa(c.QemuVlanTag)
 		}
 
-		oldStyleConf := qemuNic{
-			0: oldStyleMap,
-		}
-		c.QemuNetworks = append(c.QemuNetworks, oldStyleConf)
+		c.QemuNetworks[0] = deprecatedStyleMap
 	}
 
 	// For new style with multi net device.
-	for _, nic := range c.QemuNetworks {
-		for nicID, nicConf := range nic {
-			nicConfFormated := []string{}
-			nicConfMap := nicConf.(map[string]interface{})
-			// Set Nic name.
-			qemuNicName := "net" + strconv.Itoa(nicID)
+	for nicID, nicConfMap := range c.QemuNetworks {
+		nicConfFormated := []string{}
 
-			// Set Nic type.
-			nicConfStr := nicConfMap["type"].(string)
-			nicConfFormated = append(nicConfFormated, nicConfStr)
+		// Set Nic name.
+		qemuNicName := "net" + strconv.Itoa(nicID)
 
-			if nicConfMap["bridge"].(string) != "nat" {
-				bridge := fmt.Sprintf("bridge=%v", nicConfMap["bridge"])
-				nicConfFormated = append(nicConfFormated, bridge)
-			}
+		// Set Nic type.
+		deviceType := nicConfMap["type"].(string)
+		nicConfType := strings.Split(deviceType, "=")[0]
+		nicConfFormated = append(nicConfFormated, nicConfType)
 
-			ignoredKeys := []string{"id", "type", "bridge"}
+		// Set bridge if not nat.
+		if nicConfMap["bridge"].(string) != "nat" {
+			bridge := fmt.Sprintf("bridge=%v", nicConfMap["bridge"])
+			nicConfFormated = append(nicConfFormated, bridge)
+		}
 
-			// Nic config.
-			for key, value := range nicConfMap {
-				if ignored := inArray(ignoredKeys, key); !ignored {
-					var confValue interface{}
-					if sValue, ok := value.(string); ok && len(sValue) > 0 {
-						confValue = sValue
-					} else if iValue, ok := value.(int); ok && iValue > 0 {
-						confValue = iValue
-					}
-					if confValue != nil {
-						conf := fmt.Sprintf("%v=%v", key, confValue)
-						nicConfFormated = append(nicConfFormated, conf)
-					}
+		ignoredKeys := []string{"id", "type", "bridge"}
+
+		// Nic config.
+		for key, value := range nicConfMap {
+			if ignored := inArray(ignoredKeys, key); !ignored {
+				var confValue interface{}
+				if sValue, ok := value.(string); ok && len(sValue) > 0 {
+					confValue = sValue
+				} else if iValue, ok := value.(int); ok && iValue > 0 {
+					confValue = iValue
+				}
+				if confValue != nil {
+					conf := fmt.Sprintf("%v=%v", key, confValue)
+					nicConfFormated = append(nicConfFormated, conf)
 				}
 			}
-
-			// Add nic to Qemu prams.
-			params[qemuNicName] = strings.Join(nicConfFormated, ",")
 		}
+
+		// Add nic to Qemu prams.
+		params[qemuNicName] = strings.Join(nicConfFormated, ",")
 	}
 
 	return nil
