@@ -13,9 +13,9 @@ import (
 )
 
 type (
-	qemuDevices     map[int]map[string]interface{}
-	qemuDevice      map[string]interface{}
-	qemuDeviceParam []string
+	QemuDevices     map[int]map[string]interface{}
+	QemuDevice      map[string]interface{}
+	QemuDeviceParam []string
 )
 
 type ConfigQemu struct {
@@ -27,8 +27,8 @@ type ConfigQemu struct {
 	QemuCores    int         `json:"cores"`
 	QemuSockets  int         `json:"sockets"`
 	QemuIso      string      `json:"iso"`
-	QemuDisks    qemuDevices `json:"disk"`
-	QemuNetworks qemuDevices `json:"network"`
+	QemuDisks    QemuDevices `json:"disk"`
+	QemuNetworks QemuDevices `json:"network"`
 	FullClone    *int        `json:"fullclone"`
 	// Deprecated.
 	QemuNicModel string  `json:"nic"`
@@ -176,8 +176,8 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		QemuSockets:  int(vmConfig["sockets"].(float64)),
 		QemuVlanTag:  -1,
 		FullClone:    &fullclone,
-		QemuDisks:    qemuDevices{},
-		QemuNetworks: qemuDevices{},
+		QemuDisks:    QemuDevices{},
+		QemuNetworks: QemuDevices{},
 	}
 
 	if vmConfig["ide2"] != nil {
@@ -208,7 +208,7 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		diskStorage := strings.Split(diskConfList[0], ":")[0]
 
 		//
-		diskConfMap := qemuDevice{
+		diskConfMap := QemuDevice{
 			"type":    diskType,
 			"storage": diskStorage,
 		}
@@ -242,7 +242,7 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		nicID, _ := strconv.Atoi(id[0])
 
 		// Remove MAC address, and add type only.
-		nicConfMap := qemuDevice{
+		nicConfMap := QemuDevice{
 			"type": strings.Split(nicConfList[0], "=")[0],
 		}
 
@@ -409,7 +409,7 @@ func (c ConfigQemu) CreateQemuNetworksParams(params map[string]interface{}) erro
 
 	// For backward compatibility.
 	if len(c.QemuNetworks) == 0 && len(c.QemuNicModel) > 0 {
-		deprecatedStyleMap := qemuDevice{
+		deprecatedStyleMap := QemuDevice{
 			"type":   c.QemuNicModel,
 			"bridge": c.QemuBrige,
 		}
@@ -430,7 +430,7 @@ func (c ConfigQemu) CreateQemuNetworksParams(params map[string]interface{}) erro
 		// Set Nic type.
 		deviceType := nicConfMap["type"].(string)
 		nicConfType := strings.Split(deviceType, "=")[0]
-		nicConfParam := qemuDeviceParam{nicConfType}
+		nicConfParam := QemuDeviceParam{nicConfType}
 
 		// Set bridge if not nat.
 		if nicConfMap["bridge"].(string) != "nat" {
@@ -455,7 +455,7 @@ func (c ConfigQemu) CreateQemuDisksParams(params map[string]interface{}) error {
 
 	// For backward compatibility.
 	if len(c.QemuDisks) == 0 && len(c.Storage) > 0 {
-		deprecatedStyleMap := qemuDevice{
+		deprecatedStyleMap := QemuDevice{
 			"storage": c.Storage,
 			"size":    c.DiskSize,
 		}
@@ -474,7 +474,7 @@ func (c ConfigQemu) CreateQemuDisksParams(params map[string]interface{}) error {
 		diskSize := diskConfMap["size"].(string)
 		diskSizeGB := strings.Trim(diskSize, "G")
 		diskStorage := fmt.Sprintf("%v:%v", diskConfMap["storage"], diskSizeGB)
-		diskConfParam := qemuDeviceParam{diskStorage}
+		diskConfParam := QemuDeviceParam{diskStorage}
 
 		// Set cache if not none (default).
 		if diskConfMap["cache"].(string) != "none" {
@@ -495,10 +495,10 @@ func (c ConfigQemu) CreateQemuDisksParams(params map[string]interface{}) error {
 	return nil
 }
 
-func (p qemuDeviceParam) createDeviceParam(
-	deviceConfMap qemuDevice,
+func (p QemuDeviceParam) createDeviceParam(
+	deviceConfMap QemuDevice,
 	ignoredKeys []string,
-) qemuDeviceParam {
+) QemuDeviceParam {
 
 	for key, value := range deviceConfMap {
 		if ignored := inArray(ignoredKeys, key); !ignored {
@@ -518,7 +518,7 @@ func (p qemuDeviceParam) createDeviceParam(
 	return p
 }
 
-func (confMap qemuDevice) updateDeviceConfig(confList []string) error {
+func (confMap QemuDevice) updateDeviceConfig(confList []string) error {
 	// Add device config.
 	for _, confs := range confList {
 		conf := strings.Split(confs, "=")
