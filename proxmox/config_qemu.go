@@ -21,6 +21,7 @@ type (
 type ConfigQemu struct {
 	Name         string      `json:"name"`
 	Description  string      `json:"desc"`
+	Onboot       int         `json:"onboot"`
 	Memory       int         `json:"memory"`
 	Storage      string      `json:"storage"`
 	QemuOs       string      `json:"os"`
@@ -43,6 +44,7 @@ func (config ConfigQemu) CreateVm(vmr *VmRef, client *Client) (err error) {
 	params := map[string]interface{}{
 		"vmid":        strconv.Itoa(vmr.vmId),
 		"name":        config.Name,
+		"onboot":      config.Onboot,
 		"ide2":        config.QemuIso + ",media=cdrom",
 		"ostype":      config.QemuOs,
 		"sockets":     strconv.Itoa(config.QemuSockets),
@@ -99,6 +101,7 @@ func (config ConfigQemu) CloneVm(sourceVmr *VmRef, vmr *VmRef, client *Client) (
 func (config ConfigQemu) UpdateConfig(vmr *VmRef, client *Client) (err error) {
 	configParams := map[string]interface{}{
 		"description": config.Description,
+		"onboot":      config.Onboot,
 		"sockets":     strconv.Itoa(config.QemuSockets),
 		"cores":       strconv.Itoa(config.QemuCores),
 		"memory":      strconv.Itoa(config.Memory),
@@ -170,6 +173,7 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 	config = &ConfigQemu{
 		Name:         vmConfig["name"].(string),
 		Description:  strings.TrimSpace(description),
+		Onboot:       int(vmConfig["onboot"].(float64)),
 		QemuOs:       vmConfig["ostype"].(string),
 		Memory:       int(vmConfig["memory"].(float64)),
 		QemuCores:    int(vmConfig["cores"].(float64)),
