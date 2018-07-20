@@ -40,7 +40,7 @@ type ConfigQemu struct {
 func (config ConfigQemu) CreateVm(vmr *VmRef, client *Client) (err error) {
 	vmr.SetVmType("qemu")
 
-	params := map[string]string{
+	params := map[string]interface{}{
 		"vmid":        strconv.Itoa(vmr.vmId),
 		"name":        config.Name,
 		"ide2":        config.QemuIso + ",media=cdrom",
@@ -82,7 +82,7 @@ func (config ConfigQemu) CloneVm(sourceVmr *VmRef, vmr *VmRef, client *Client) (
 	if config.FullClone != nil {
 		fullclone = strconv.Itoa(*config.FullClone)
 	}
-	params := map[string]string{
+	params := map[string]interface{}{
 		"newid":   strconv.Itoa(vmr.vmId),
 		"target":  vmr.node,
 		"name":    config.Name,
@@ -97,11 +97,11 @@ func (config ConfigQemu) CloneVm(sourceVmr *VmRef, vmr *VmRef, client *Client) (
 }
 
 func (config ConfigQemu) UpdateConfig(vmr *VmRef, client *Client) (err error) {
-	configParams := map[string]string{
+	configParams := map[string]interface{}{
+		"description": config.Description,
 		"sockets":     strconv.Itoa(config.QemuSockets),
 		"cores":       strconv.Itoa(config.QemuCores),
 		"memory":      strconv.Itoa(config.Memory),
-		"description": config.Description,
 	}
 
 	// Create network config.
@@ -166,6 +166,7 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 	if vmConfig["description"] != nil {
 		description = vmConfig["description"].(string)
 	}
+
 	config = &ConfigQemu{
 		Name:         vmConfig["name"].(string),
 		Description:  strings.TrimSpace(description),
@@ -404,7 +405,7 @@ func inArray(arr []string, str string) bool {
 	return false
 }
 
-func (c ConfigQemu) CreateQemuNetworksParams(params map[string]string) error {
+func (c ConfigQemu) CreateQemuNetworksParams(params map[string]interface{}) error {
 
 	// For backward compatibility.
 	if len(c.QemuNetworks) == 0 && len(c.QemuNicModel) > 0 {
@@ -450,7 +451,7 @@ func (c ConfigQemu) CreateQemuNetworksParams(params map[string]string) error {
 	return nil
 }
 
-func (c ConfigQemu) CreateQemuDisksParams(params map[string]string) error {
+func (c ConfigQemu) CreateQemuDisksParams(params map[string]interface{}) error {
 
 	// For backward compatibility.
 	if len(c.QemuDisks) == 0 && len(c.Storage) > 0 {
