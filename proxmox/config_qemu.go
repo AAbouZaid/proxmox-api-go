@@ -42,15 +42,15 @@ func (config ConfigQemu) CreateVm(vmr *VmRef, client *Client) (err error) {
 	vmr.SetVmType("qemu")
 
 	params := map[string]interface{}{
-		"vmid":        strconv.Itoa(vmr.vmId),
+		"vmid":        vmr.vmId,
 		"name":        config.Name,
 		"onboot":      config.Onboot,
 		"ide2":        config.QemuIso + ",media=cdrom",
 		"ostype":      config.QemuOs,
-		"sockets":     strconv.Itoa(config.QemuSockets),
-		"cores":       strconv.Itoa(config.QemuCores),
+		"sockets":     config.QemuSockets,
+		"cores":       config.QemuCores,
 		"cpu":         "host",
-		"memory":      strconv.Itoa(config.Memory),
+		"memory":      config.Memory,
 		"description": config.Description,
 	}
 
@@ -85,7 +85,7 @@ func (config ConfigQemu) CloneVm(sourceVmr *VmRef, vmr *VmRef, client *Client) (
 		fullclone = strconv.Itoa(*config.FullClone)
 	}
 	params := map[string]interface{}{
-		"newid":   strconv.Itoa(vmr.vmId),
+		"newid":   vmr.vmId,
 		"target":  vmr.node,
 		"name":    config.Name,
 		"storage": config.Storage,
@@ -102,9 +102,9 @@ func (config ConfigQemu) UpdateConfig(vmr *VmRef, client *Client) (err error) {
 	configParams := map[string]interface{}{
 		"description": config.Description,
 		"onboot":      config.Onboot,
-		"sockets":     strconv.Itoa(config.QemuSockets),
-		"cores":       strconv.Itoa(config.QemuCores),
-		"memory":      strconv.Itoa(config.Memory),
+		"sockets":     config.QemuSockets,
+		"cores":       config.QemuCores,
+		"memory":      config.Memory,
 	}
 
 	// Create network config.
