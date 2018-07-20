@@ -9,3 +9,10 @@ func inArray(arr []string, str string) bool {
 
 	return false
 }
+
+func Itob(i int) bool {
+	if i == 1 {
+		return true
+	}
+	return false
+}

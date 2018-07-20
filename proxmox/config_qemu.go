@@ -21,7 +21,7 @@ type (
 type ConfigQemu struct {
 	Name         string      `json:"name"`
 	Description  string      `json:"desc"`
-	Onboot       int         `json:"onboot"`
+	Onboot       bool        `json:"onboot"`
 	Memory       int         `json:"memory"`
 	Storage      string      `json:"storage"`
 	QemuOs       string      `json:"os"`
@@ -173,7 +173,7 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 	config = &ConfigQemu{
 		Name:         vmConfig["name"].(string),
 		Description:  strings.TrimSpace(description),
-		Onboot:       int(vmConfig["onboot"].(float64)),
+		Onboot:       Itob(int(vmConfig["onboot"].(float64))),
 		QemuOs:       vmConfig["ostype"].(string),
 		Memory:       int(vmConfig["memory"].(float64)),
 		QemuCores:    int(vmConfig["cores"].(float64)),
@@ -497,7 +497,9 @@ func (p QemuDeviceParam) createDeviceParam(
 	for key, value := range deviceConfMap {
 		if ignored := inArray(ignoredKeys, key); !ignored {
 			var confValue interface{}
-			if sValue, ok := value.(string); ok && len(sValue) > 0 {
+			if bValue, ok := value.(bool); ok && bValue {
+				confValue = "1"
+			} else if sValue, ok := value.(string); ok && len(sValue) > 0 {
 				confValue = sValue
 			} else if iValue, ok := value.(int); ok && iValue > 0 {
 				confValue = iValue
