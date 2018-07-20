@@ -399,16 +399,6 @@ func SendKeysString(vmr *VmRef, client *Client, keys string) (err error) {
 	return nil
 }
 
-func inArray(arr []string, str string) bool {
-	for _, elem := range arr {
-		if elem == str {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (c ConfigQemu) CreateQemuNetworksParams(params map[string]interface{}) error {
 
 	// For backward compatibility.
