@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -58,7 +60,7 @@ func (config ConfigQemu) CreateVm(vmr *VmRef, client *Client) (err error) {
 	config.CreateQemuDisksParams(params)
 
 	// Create network config.
-	config.CreateQemuNetworksParams(params)
+	config.CreateQemuNetworksParams(vmr.vmId, params)
 
 	_, err = client.CreateQemuVm(vmr.node, params)
 	return
@@ -111,7 +113,7 @@ func (config ConfigQemu) UpdateConfig(vmr *VmRef, client *Client) (err error) {
 	config.CreateQemuDisksParams(configParams)
 
 	// Create network config.
-	config.CreateQemuNetworksParams(configParams)
+	config.CreateQemuNetworksParams(vmr.vmId, configParams)
 
 	_, err = client.SetVmConfig(vmr, configParams)
 	return err
@@ -218,7 +220,7 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		}
 
 		// Add rest of device config.
-		diskConfMap.updateDeviceConfig(diskConfList[1:])
+		diskConfMap.readDeviceConfig(diskConfList[1:])
 
 		// And device config to disks map.
 		if len(diskConfMap) > 0 {
@@ -244,14 +246,16 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		//
 		id := nicIDRe.FindStringSubmatch(nicName)
 		nicID, _ := strconv.Atoi(id[0])
+		modelAndMacaddr := strings.Split(nicConfList[0], "=")
 
-		// Remove MAC address, and add type only.
+		// Add model and MAC address.
 		nicConfMap := QemuDevice{
-			"type": strings.Split(nicConfList[0], "=")[0],
+			"model":   modelAndMacaddr[0],
+			"macaddr": modelAndMacaddr[1],
 		}
 
 		// Add rest of device config.
-		nicConfMap.updateDeviceConfig(nicConfList[1:])
+		nicConfMap.readDeviceConfig(nicConfList[1:])
 
 		// And device config to networks.
 		if len(nicConfMap) > 0 {
@@ -399,7 +403,7 @@ func SendKeysString(vmr *VmRef, client *Client, keys string) (err error) {
 	return nil
 }
 
-func (c ConfigQemu) CreateQemuNetworksParams(params map[string]interface{}) error {
+func (c ConfigQemu) CreateQemuNetworksParams(vmID int, params map[string]interface{}) error {
 
 	// For backward compatibility.
 	if len(c.QemuNetworks) == 0 && len(c.QemuNicModel) > 0 {
@@ -418,13 +422,28 @@ func (c ConfigQemu) CreateQemuNetworksParams(params map[string]interface{}) erro
 	// For new style with multi net device.
 	for nicID, nicConfMap := range c.QemuNetworks {
 
+		nicConfParam := QemuDeviceParam{}
+
 		// Set Nic name.
 		qemuNicName := "net" + strconv.Itoa(nicID)
 
-		// Set Nic type.
-		deviceType := nicConfMap["type"].(string)
-		nicConfType := strings.Split(deviceType, "=")[0]
-		nicConfParam := QemuDeviceParam{nicConfType}
+		// Set Mac address.
+		if nicConfMap["macaddr"].(string) == "" {
+			// Generate Mac based on VmID and NicID so it will be the same always.
+			macaddr := make(net.HardwareAddr, 6)
+			rand.Seed(int64(vmID + nicID))
+			rand.Read(macaddr)
+			macAddrUppr := strings.ToUpper(fmt.Sprintf("%v", macaddr))
+			macAddr := fmt.Sprintf("macaddr=%v", macAddrUppr)
+
+			// Add Mac to source map so it will be returned. (useful for some use case like Terraform)
+			nicConfMap["macaddr"] = macAddrUppr
+			// and also add it to the parameters which will be sent to Proxmox API.
+			nicConfParam = append(nicConfParam, macAddr)
+		} else {
+			macAddr := fmt.Sprintf("macaddr=%v", nicConfMap["macaddr"].(string))
+			nicConfParam = append(nicConfParam, macAddr)
+		}
 
 		// Set bridge if not nat.
 		if nicConfMap["bridge"].(string) != "nat" {
@@ -433,7 +452,7 @@ func (c ConfigQemu) CreateQemuNetworksParams(params map[string]interface{}) erro
 		}
 
 		// Keys that are not used as real/direct conf.
-		ignoredKeys := []string{"id", "type", "bridge"}
+		ignoredKeys := []string{"id", "bridge", "macaddr"}
 
 		// Rest of config.
 		nicConfParam = nicConfParam.createDeviceParam(nicConfMap, ignoredKeys)
@@ -514,14 +533,14 @@ func (p QemuDeviceParam) createDeviceParam(
 	return p
 }
 
-func (confMap QemuDevice) updateDeviceConfig(confList []string) error {
+func (confMap QemuDevice) readDeviceConfig(confList []string) error {
 	// Add device config.
 	for _, confs := range confList {
 		conf := strings.Split(confs, "=")
 		key := conf[0]
 		value := conf[1]
 		// Make sure to add value in right type because
-		// all values are retruned as strings from Proxmox config.
+		// all subconfig are returned as strings from Proxmox API.
 		if iValue, err := strconv.ParseInt(value, 10, 64); err == nil {
 			confMap[key] = int(iValue)
 		} else if bValue, err := strconv.ParseBool(value); err == nil {
