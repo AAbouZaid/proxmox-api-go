@@ -56,10 +56,10 @@ func (config ConfigQemu) CreateVm(vmr *VmRef, client *Client) (err error) {
 		"description": config.Description,
 	}
 
-	// Create network config.
-	config.CreateQemuDisksParams(params)
+	// Create disks config.
+	config.CreateQemuDisksParams(vmr.vmId, "create", params)
 
-	// Create network config.
+	// Create networks config.
 	config.CreateQemuNetworksParams(vmr.vmId, params)
 
 	_, err = client.CreateQemuVm(vmr.node, params)
@@ -109,10 +109,10 @@ func (config ConfigQemu) UpdateConfig(vmr *VmRef, client *Client) (err error) {
 		"memory":      config.Memory,
 	}
 
-	// Create network config.
-	config.CreateQemuDisksParams(configParams)
+	// Create disks config.
+	config.CreateQemuDisksParams(vmr.vmId, "update", configParams)
 
-	// Create network config.
+	// Create networks config.
 	config.CreateQemuNetworksParams(vmr.vmId, configParams)
 
 	_, err = client.SetVmConfig(vmr, configParams)
@@ -130,7 +130,6 @@ func NewConfigQemuFromJson(io io.Reader) (config *ConfigQemu, err error) {
 	return
 }
 
-//var rxStorage = regexp.MustCompile("(.*?):.*?,size=(\\d+)G")
 var rxIso = regexp.MustCompile("(.*?),media")
 
 func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err error) {
@@ -211,12 +210,13 @@ func NewConfigQemuFromApi(vmr *VmRef, client *Client) (config *ConfigQemu, err e
 		id := diskIDRe.FindStringSubmatch(diskName)
 		diskID, _ := strconv.Atoi(id[0])
 		diskType := diskTypeRe.FindStringSubmatch(diskName)[0]
-		diskStorage := strings.Split(diskConfList[0], ":")[0]
+		diskStorageAndFile := strings.Split(diskConfList[0], ":")
 
 		//
 		diskConfMap := QemuDevice{
 			"type":    diskType,
-			"storage": diskStorage,
+			"storage": diskStorageAndFile[0],
+			"file":    diskStorageAndFile[1],
 		}
 
 		// Add rest of device config.
@@ -464,7 +464,11 @@ func (c ConfigQemu) CreateQemuNetworksParams(vmID int, params map[string]interfa
 	return nil
 }
 
-func (c ConfigQemu) CreateQemuDisksParams(params map[string]interface{}) error {
+func (c ConfigQemu) CreateQemuDisksParams(
+	vmID int,
+	action string,
+	params map[string]interface{},
+) error {
 
 	// For backward compatibility.
 	if len(c.QemuDisks) == 0 && len(c.Storage) > 0 {
@@ -479,15 +483,41 @@ func (c ConfigQemu) CreateQemuDisksParams(params map[string]interface{}) error {
 	// For new style with multi disk device.
 	for diskID, diskConfMap := range c.QemuDisks {
 
-		// Set disk name.
+		diskConfParam := QemuDeviceParam{}
+
+		// Device name.
 		deviceType := diskConfMap["type"].(string)
 		qemuDiskName := deviceType + strconv.Itoa(diskID)
 
 		// Set disk storage.
-		diskSize := diskConfMap["size"].(string)
-		diskSizeGB := strings.Trim(diskSize, "G")
-		diskStorage := fmt.Sprintf("%v:%v", diskConfMap["storage"], diskSizeGB)
-		diskConfParam := QemuDeviceParam{diskStorage}
+		if action == "create" {
+
+			// Disk size.
+			diskSizeGB := diskConfMap["size"].(string)
+			diskSize := strings.Trim(diskSizeGB, "G")
+			diskStorage := fmt.Sprintf("%v:%v", diskConfMap["storage"], diskSize)
+			diskConfParam = append(diskConfParam, diskStorage)
+
+		} else if action == "update" {
+
+			// Disk size.
+			diskSizeGB := fmt.Sprintf("size=%v", diskConfMap["size"])
+			diskConfParam = append(diskConfParam, diskSizeGB)
+
+			// Disk name.
+			// FIXME: Here disk naming assumes that disk IDs start from `0`, which's not necessary.
+			// A better way to do that is creating the disk separately with known name
+			// instead make Proxmox API creates the name automatically.
+			var diskFile string
+			// Currently ZFS (local) and Directory/Local are considered.
+			// Other formats are not verified, but could be added if they're needed.
+			if diskConfMap["storage_type"].(string) == "zfspool" {
+				diskFile = fmt.Sprintf("file=%v:vm-%v-disk-%v", diskConfMap["storage"], vmID, diskID+1)
+			} else {
+				diskFile = fmt.Sprintf("file=%v:%v/vm-%v-disk-%v.%v", diskConfMap["storage"], vmID, vmID, diskID+1, diskConfMap["format"])
+			}
+			diskConfParam = append(diskConfParam, diskFile)
+		}
 
 		// Set cache if not none (default).
 		if diskConfMap["cache"].(string) != "none" {
@@ -496,7 +526,7 @@ func (c ConfigQemu) CreateQemuDisksParams(params map[string]interface{}) error {
 		}
 
 		// Keys that are not used as real/direct conf.
-		ignoredKeys := []string{"id", "type", "storage", "size", "cache"}
+		ignoredKeys := []string{"id", "type", "storage", "storage_type", "size", "cache"}
 
 		// Rest of config.
 		diskConfParam = diskConfParam.createDeviceParam(diskConfMap, ignoredKeys)
