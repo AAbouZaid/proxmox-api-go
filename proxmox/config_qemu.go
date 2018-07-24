@@ -403,6 +403,7 @@ func SendKeysString(vmr *VmRef, client *Client, keys string) (err error) {
 	return nil
 }
 
+// Create parameters for each Nic device.
 func (c ConfigQemu) CreateQemuNetworksParams(vmID int, params map[string]interface{}) error {
 
 	// For backward compatibility.
@@ -464,6 +465,7 @@ func (c ConfigQemu) CreateQemuNetworksParams(vmID int, params map[string]interfa
 	return nil
 }
 
+// Create parameters for each disk.
 func (c ConfigQemu) CreateQemuDisksParams(
 	vmID int,
 	action string,
@@ -540,6 +542,7 @@ func (c ConfigQemu) CreateQemuDisksParams(
 	return nil
 }
 
+// Create the parameters for each device that will be sent to Proxmox API.
 func (p QemuDeviceParam) createDeviceParam(
 	deviceConfMap QemuDevice,
 	ignoredKeys []string,
@@ -565,6 +568,7 @@ func (p QemuDeviceParam) createDeviceParam(
 	return p
 }
 
+// Parse standard sub-conf strings where `key=value` and update conf map.
 func (confMap QemuDevice) readDeviceConfig(confList []string) error {
 	// Add device config.
 	for _, confs := range confList {
