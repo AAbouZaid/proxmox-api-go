@@ -509,9 +509,11 @@ func (c ConfigQemu) CreateQemuDisksParams(
 			// A better way to do that is creating the disk separately with known name
 			// instead make Proxmox API creates the name automatically.
 			var diskFile string
-			// Currently ZFS (local) and Directory/Local are considered.
+			// Currently ZFS local, LVM, and Directory are considered.
 			// Other formats are not verified, but could be added if they're needed.
-			if diskConfMap["storage_type"].(string) == "zfspool" {
+			rxStorageTypes := `(zfspool|lvm)`
+			storageType := diskConfMap["storage_type"].(string)
+			if matched, _ := regexp.MatchString(rxStorageTypes, storageType); matched {
 				diskFile = fmt.Sprintf("file=%v:vm-%v-disk-%v", diskConfMap["storage"], vmID, diskID+1)
 			} else {
 				diskFile = fmt.Sprintf("file=%v:%v/vm-%v-disk-%v.%v", diskConfMap["storage"], vmID, vmID, diskID+1, diskConfMap["format"])
