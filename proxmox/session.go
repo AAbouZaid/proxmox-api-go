@@ -50,9 +50,20 @@ func NewSession(apiUrl string, hclient *http.Client, tls *tls.Config) (session *
 	return session, nil
 }
 
-func ParamsToBody(params map[string]string) (body []byte) {
+func ParamsToBody(params map[string]interface{}) (body []byte) {
 	vals := url.Values{}
-	for k, v := range params {
+	for k, intrV := range params {
+		var v string
+		switch intrV.(type) {
+		case bool:
+			if intrV.(bool) {
+				v = "1"
+			} else {
+				v = "0"
+			}
+		default:
+			v = fmt.Sprintf("%v", intrV)
+		}
 		vals.Set(k, v)
 	}
 	body = bytes.NewBufferString(vals.Encode()).Bytes()
@@ -71,7 +82,7 @@ func ResponseJSON(resp *http.Response) (jbody map[string]interface{}) {
 }
 
 func (s *Session) Login(username string, password string) (err error) {
-	reqbody := ParamsToBody(map[string]string{"username": username, "password": password})
+	reqbody := ParamsToBody(map[string]interface{}{"username": username, "password": password})
 	olddebug := *Debug
 	*Debug = false // don't share passwords in debug log
 	resp, err := s.Post("/access/ticket", nil, nil, &reqbody)
